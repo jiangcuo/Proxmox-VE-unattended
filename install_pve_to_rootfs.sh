@@ -1,8 +1,8 @@
 #定义一个安装磁盘
-rootdisk="/dev/sda"
+rootdisk="/dev/sdc"
 userpw="P@SSw0rd"
-rootfs="/mnt"
-rootfssrc="/data/rootfs"
+rootfs="/tmp/target"
+rootfssrc="/tmp/rootfs-squ"
 ipaddr="10.13.14.24"
 netmask="24"
 gateway="10.13.14.252"
