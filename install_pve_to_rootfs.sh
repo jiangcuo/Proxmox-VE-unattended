@@ -92,28 +92,21 @@ chroot $rootfs bash /tools/installpve.sh
 #配置引导
 chroot $rootfs update-grub
 mkdir $rootfs/boot/efi/EFI/BOOT/ -p
-cat << EOF >> $rootfs/boot/efi/EFI/BOOT/grub.cfg
-search.fs_uuid $rootboot root hd0,gpt3
-set prefix=(\$root)'/boot/grub'
-configfile \$prefix/grub.cfg
-EOF
-
-grub-mkimage -c $rootfs/boot/efi/EFI/BOOT/grub.cfg -p "/EFI/proxmox" -o /boot/efi/EFI/BOOT/BOOTX64.EFI -O x86_64-efi  boot \
+chroot $rootfs /grub-install --target x86_64-efi --no-floppy --bootloader-id='proxmox' $rootdisk
+chroot $rootfs grub-mkimage -c /boot/efi/EFI/proxmox/grub.cfg -p "/EFI/proxmox" -o /boot/efi/EFI/BOOT/BOOTX64.EFI -O x86_64-efi  boot \
 chain configfile fat linux ls part_gpt reboot serial efi_gop search_fs_uuid lvm ext2 \
-zfs video terminal tar xfs lvm fat all_video  efi_uga \
-video_bochs video_cirrus gzio part_gpt 
+zfs video terminal tar xfs lvm fat all_video  efi_uga echo search \
+video_bochs video_cirrus gzio part_gpt loadenv gfxterm gfxterm_menu gfxterm_background \
+file font extcmd btrfs geli gettext loopback regexp romfs squash4 udf usb usb_keyboard \
+normal 
+cp $rootfs/boot/efi/EFI/BOOT/BOOTX64.EFI $rootfs/boot/efi/EFI/proxmox/grubx64.efi
 
-grub-mkimage -c grub.cfg -p "/EFI/BOOT" -o $rootfs/boot/efi/EFI/BOOT/BOOTX64.EFI -O x86_64-efi  boot \
-chain configfile fat linux ls part_gpt reboot serial efi_gop search_fs_uuid lvm ext2 \
-zfs video terminal tar xfs lvm fat all_video  efi_uga \
-video_bochs video_cirrus gzio part_gpt 
-
-
-# grub-mkimage -c grub.cfg -p "/EFI/BOOT" -o BOOTX64.EFI -O x86_64-efi boot \
+# grub-mkimage -c grub.cfg -p "/EFI/proxmox" -o /boot/efi/EFI/BOOT/BOOTX64.EFI -O x86_64-efi  boot \
 # chain configfile fat linux ls part_gpt reboot serial efi_gop search_fs_uuid lvm ext2 \
-# zfs video terminal tar xfs reboot lvm fat all_video efi_gop efi_uga \
-# video_bochs video_cirrus gzio part_gpt 
- 
+# zfs video terminal tar xfs lvm fat all_video  efi_uga echo search \
+# video_bochs video_cirrus gzio part_gpt loadenv gfxterm gfxterm_menu gfxterm_background \
+# file font extcmd btrfs geli gettext loopback regexp romfs squash4 udf usb usb_keyboard  \
+# normal 
 
 #enable ssh
 sed -i 's/^#\?PermitRootLogin.*/PermitRootLogin yes/' $rootfs/etc/ssh/sshd_config
