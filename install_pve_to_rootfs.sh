@@ -11,6 +11,7 @@ fq="pve"
 dn="bingsin.com"
 
 #创建gpt分区表
+#pve-installer no parted ......see install-pve.sh
 
 dd if=/dev/zero of=$rootdisk bs=1M count=1
 

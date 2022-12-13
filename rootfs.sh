@@ -10,6 +10,7 @@ debootstrap --arch=amd64  bullseye $rootfssrc https://mirrors.ustc.edu.cn/debian
 mount -t proc /proc  $rootfs/proc
 mount -t sysfs /sys  $rootfs/sys
 mount -o bind /dev  $rootfs/dev
+mount -o bind /dev/pts  $rootfs/dev/pts
 
 #修改源
 echo > $rootfssrc/etc/apt/sources.list
