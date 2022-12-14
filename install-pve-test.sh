@@ -11,24 +11,10 @@ gateway="192.168.3.1"
 eth="enp6s18"
 fq="pve"
 dn="bingsin.com"
-G_SLICE=always-malloc
-
-# echo >/etc/apt/sources.list
-# cat << EOF >> /etc/apt/sources.list
-# deb https://mirrors.ustc.edu.cn/debian/ bullseye main contrib non-free
-# deb https://mirrors.ustc.edu.cn/debian/ bullseye-updates main contrib non-free
-# deb https://mirrors.ustc.edu.cn/debian/ bullseye-backports main contrib non-free
-# deb https://mirrors.ustc.edu.cn/debian-security bullseye-security main contrib 
-# deb https://mirrors.ustc.edu.cn/proxmox/debian bullseye pve-no-subscription
-# EOF
-# apt update
-# apt install openssh-server -y
-# echo "root:root" | chpasswd
-# sed -i 's/^#\?PermitRootLogin.*/PermitRootLogin yes/' /etc/ssh/sshd_config
-# sed -i 's/^#\?PasswordAuthentication.*/PasswordAuthentication yes/' /etc/ssh/sshd_config
+#config the install way,options is "cdrom or apt",default is cdrom.if network is lost, will use cdrom
+install_way="apt"
 
 disk_setup(){
-
 dd if=/dev/zero of=$rootdisk bs=1M count=16
 echo "create gpt"
 sgdisk -Z $rootdisk
@@ -117,26 +103,37 @@ EOF
 echo "nameserver 223.5.5.5" > $pve_target/etc/resolv.conf
 }
 
-install_apt(){
-echo "add local registry"
+apt_mirrors(){
+echo "change proxmox-ve and debian registry mirror"
+wget http://download.proxmox.com/debian/proxmox-release-bullseye.gpg -O $pve_target/etc/apt/trusted.gpg.d/proxmox-release-bullseye.gpg
 echo > $pve_target/etc/apt/sources.list
 cat << EOF >> $pve_target/etc/apt/sources.list
-deb file:///media/proxmox/packages/ ./
+deb http://mirrors.ustc.edu.cn/debian/ bullseye main contrib non-free
+deb http://mirrors.ustc.edu.cn/debian/ bullseye-updates main contrib non-free
+deb http://mirrors.ustc.edu.cn/debian/ bullseye-backports main contrib non-free
+deb http://mirrors.ustc.edu.cn/debian-security bullseye-security main contrib 
+deb http://mirrors.ustc.edu.cn/proxmox/debian bullseye pve-no-subscription
 EOF
-chroot $pve_target  apt --allow-insecure-repositories update
-DEBIAN_FRONTEND=noninteractive LC_ALL=C chroot $pve_target apt install --allow-unauthenticated proxmox-ve init  -y
-chroot $pve_target dpkg  --force-confold --configure -a
+}
+
+install_apt(){
+apt_mirrors
+chroot $pve_target apt update
+DEBIAN_FRONTEND=noninteractive chroot $pve_target apt install init systemd  -y 
+DEBIAN_FRONTEND=noninteractive chroot $pve_target apt install ifenslave ifupdown proxmox-ve  -y
 }
 
 
 install_dpkg(){
-chroot $pve_target ifup lo
+umount -l /dev/sr0
+chroot $pve_target mount /dev/sr0 /media
 cd $pve_target/media/proxmox/packages/
-for i in `ls *.deb|grep -v open-iscsi`;
+for i in `ls *.deb`;
 do 
 DEBIAN_FRONTEND=noninteractive chroot $pve_target dpkg --force-depends --no-triggers --force-unsafe-io --force-confold  --unpack /media/proxmox/packages/$i;
 done
 DEBIAN_FRONTEND=noninteractive chroot $pve_target dpkg --force-confold --configure --force-unsafe-io -a 
+chroot $pve_target umount /media
 }
 
 copy_proxmox_lib(){
@@ -160,27 +157,13 @@ diversion_remove(){
 	chroot $1 dpkg-divert --remove $2
 }
 
-disk_setup
-copy_roofs
-mount_fstab
-prepare_chroot
-modify_hostname
-modify_network
-copy_proxmox_lib
-diversion_add $pve_target /sbin/start-stop-daemon /sbin/fake-start-stop-daemon
-diversion_add $pve_target /usr/sbin/update-grub /bin/true
-diversion_add $pve_target /usr/sbin/update-initramfs /bin/true
+enable_ssh(){
+echo "allow root login with openssh"
+sed -i 's/^#\?PermitRootLogin.*/PermitRootLogin yes/' $pve_target/etc/ssh/sshd_config
+sed -i 's/^#\?PasswordAuthentication.*/PasswordAuthentication yes/' $pve_target/etc/ssh/sshd_config
+}
 
-#将iso挂载到pve_target中
-umount -l /dev/sr0
-chroot $pve_target mount /dev/sr0 /media
-install_dpkg
-clean_proxmox_lib
-diversion_remove $pve_target /sbin/start-stop-daemon
-diversion_remove $pve_target /usr/sbin/update-grub
-diversion_remove $pve_target /usr/sbin/update-initramfs
-
-#配置引导
+grub_install(){
 echo "create grub"
 chroot $pve_target /usr/sbin/update-initramfs -c -k all
 echo "create efi boot"
@@ -192,28 +175,54 @@ chroot $pve_target grub-install --target x86_64-efi --no-floppy --bootloader-id=
 cp $pve_target/boot/efi/EFI/proxmox/grubx64.efi $pve_target/boot/efi/EFI/BOOT/BOOTX64.EFI 
 echo "create bios boot"
 chroot $pve_target grub-install --target=i386-pc --recheck --debug $rootdisk
+}
 
-#enable ssh
-echo "allow root login with openssh"
-sed -i 's/^#\?PermitRootLogin.*/PermitRootLogin yes/' $pve_target/etc/ssh/sshd_config
-sed -i 's/^#\?PasswordAuthentication.*/PasswordAuthentication yes/' $pve_target/etc/ssh/sshd_config
+config_postfix(){
+	sed -i "s/^#\?myhostname.*/myhostname=$fq.$dn/" $pve_target/etc/postfix/main.cf
+	chroot $pve_target /usr/sbin/postfix check
+	chroot $pve_target /usr/sbin/postsuper -d ALL
+	chroot $pve_target /usr/bin/newaliases
+}
 
-#apt source
-echo "change proxmox-ve and debian registry mirror"
-echo > $pve_target/etc/apt/sources.list
-cat << EOF >> $pve_target/etc/apt/sources.list
-deb https://mirrors.ustc.edu.cn/debian/ bullseye main contrib non-free
-deb https://mirrors.ustc.edu.cn/debian/ bullseye-updates main contrib non-free
-deb https://mirrors.ustc.edu.cn/debian/ bullseye-backports main contrib non-free
-deb https://mirrors.ustc.edu.cn/debian-security bullseye-security main contrib 
-deb https://mirrors.ustc.edu.cn/proxmox/debian bullseye pve-no-subscription
-EOF
+config_timezon(){
+	rm $pve_target/etc/localtime
+	chroot $pve_target ln -sf /usr/share/zoneinfo/Asia/Shanghai /etc/localtime
+}
+
+
+
+disk_setup
+copy_roofs
+mount_fstab
+prepare_chroot
+modify_hostname
+modify_network
+copy_proxmox_lib
+diversion_add $pve_target /sbin/start-stop-daemon /sbin/fake-start-stop-daemon
+diversion_add $pve_target /usr/sbin/update-grub /bin/true
+diversion_add $pve_target /usr/sbin/update-initramfs /bin/true
+
+if [ $install_way = "apt" ];then
+install_apt
+else
+install_dpkg
+fi
+
+clean_proxmox_lib
+diversion_remove $pve_target /sbin/start-stop-daemon
+diversion_remove $pve_target /usr/sbin/update-grub
+diversion_remove $pve_target /usr/sbin/update-initramfs
+
+grub_install
+enable_ssh
+apt_mirrors
+
 
 #添加key
-#wget http://download.proxmox.com/debian/proxmox-release-bullseye.gpg -O $pve_target/etc/apt/trusted.gpg.d/proxmox-release-bullseye.gpg
+#
 
 
-# #取消挂载
+#取消挂载
 echo clean
 umount -l $pve_target/proc
 umount -l $pve_target/sys
