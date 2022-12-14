@@ -117,6 +117,7 @@ EOF
 echo "nameserver 223.5.5.5" > $pve_target/etc/resolv.conf
 }
 
+
 install_apt(){
 echo "add local registry"
 echo > $pve_target/etc/apt/sources.list
@@ -211,10 +212,13 @@ EOF
 
 
 # #取消挂载
-echo clean
-umount -l $pve_target/proc
-umount -l $pve_target/sys
-umount -l $pve_target/dev
-umount -l $pve_target/dev/pts
-umount -l $pve_target/boot/efi/
-umount -l $pve_target
+# echo clean
+# umount -l $pve_target/proc
+# umount -l $pve_target/sys
+# umount -l $pve_target/dev
+# umount -l $pve_target/dev/pts
+# umount -l $pve_target/boot/efi/
+# rm -rf $pve_target/tools
+# umount -l $pve_target
+
+
