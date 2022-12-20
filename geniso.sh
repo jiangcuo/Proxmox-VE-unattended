@@ -7,15 +7,12 @@ mount -o loop $isofile /mnt
 rsync -rav /mnt/* $isotemp
 umount /mnt
 
-
 cd $isotemp 
 unsquashfs $isotemp/pve-installer.squashfs  
 cp $startsh $isotemp/squashfs-root/install-pve.sh
 sed -i "3i bash /start.sh" $isotemp/squashfs-root/.xinitrc
 mksquashfs $isotemp/squashfs-root/ ./pve-installer.squashfs
 rm -rf $isotemp/squashfs-root 
-
-
 
 # I find ifupdown2 can't configure correctly by dpkg,  delete it and add ifenslave
 echo "make pkg"

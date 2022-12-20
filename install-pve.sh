@@ -1,10 +1,8 @@
 #!/bin/bash
 sleep 5
-
 #base_conf
 pve_target="/tmp/target"
 pve_base="/tmp/pve_base-squ"
-
 #rootdisk="/dev/sda"
 #userpw="P@SSw0rd"
 #ipaddr="192.168.3.44"
@@ -97,7 +95,6 @@ EOF
 	echo $fq > $pve_target/etc/hostname
 }
 
-
 #修改network
 modify_network(){
 	echo "modify network"
@@ -139,7 +136,6 @@ install_apt(){
 	#DEBIAN_FRONTEND=noninteractive chroot $pve_target apt install --no-install-recommends init systemd -y 
 	DEBIAN_FRONTEND=noninteractive chroot $pve_target apt install --no-install-recommends ifenslave ifupdown proxmox-ve -y
 }
-
 
 install_dpkg(){
 	umount -l /dev/sr0
