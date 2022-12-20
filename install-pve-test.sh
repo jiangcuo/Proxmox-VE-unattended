@@ -2,6 +2,7 @@
 sleep 5
 
 #base_conf
+pve_target="/tmp/target"
 pve_base="/tmp/pve_base-squ"
 
 #rootdisk="/dev/sda"
