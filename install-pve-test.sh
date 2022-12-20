@@ -1,39 +1,46 @@
 #!/bin/bash
-#定义一个安装磁盘
 sleep 5
 
+#base_conf
+pve_base="/tmp/pve_base-squ"
+
+#rootdisk="/dev/sda"
+#userpw="P@SSw0rd"
+#ipaddr="192.168.3.44"
+#netmask="24"
+#gateway="192.168.3.1"
+#eth="enp6s18"
+#fq="pve"
+#dn="bingsin.com"
 #error,it's not work .
 #config the install way,options is "cdrom or apt",default is cdrom.if network is lost, will use cdrom
 #install_way="cdrom"
 
-#how to load config_file from http,defualt or not set is use local conf-file
+#how to load config_file from http or cdrom (whitch is use local conf-file)
 #you must set http_conf_url if you want't use http.
-#config_file="http"
-#http_conf_url="http://10.10.10.1/msg.conf"
-
-
-disk_setup(){
-	dd if=/dev/zero of=$rootdisk bs=1M count=16
-	echo "create gpt"
-	sgdisk -Z $rootdisk
-
-	echo "create bios parttion"
-	sgdisk -a1 -n1:34:2047  -t1:EF02  $rootdisk
-
-	echo "create efi parttion"
-	sgdisk -a1 -n2:1M:+512M -t2:EF00 $rootdisk
-	mkfs.vfat -F 32  "$rootdisk"2
-
-	echo "create root parttion"
-	sgdisk -a1 -n3:513M:-1G  $rootdisk
-	mkfs.ext4 -F "$rootdisk"3
-}
+config_file="cdrom"
+#http_conf_url="http://192.168.3.120:801/msg.conf"
 
 copy_roofs(){
-	mkdir  $pve_base
+	if [ ! -e /cdrom/pve-base.squashfs ];then
+		echo "pvebasefile is not exist"
+		echo "exit!"
+		exit 0;
+	fi	
+	if [ -d $pve_base  ];then
+		echo "$pve_base is exist"
+		echo "delete!"
+		rm $pve_base -rf
+	fi
+	mkdir  $pve_base 
 	mount  /cdrom/pve-base.squashfs  $pve_base -t squashfs -o loop
 	echo "copy pve_target"
-	mkdir -p $pve_target
+	if [ -d $pve_target  ];then
+		echo "$pve_target is exist"
+		echo "delete!"
+		rm $pve_target -rf
+	fi
+	mkdir  $pve_target
 	mount "$rootdisk"3 $pve_target
 	cp -ar  $pve_base/* $pve_target
 	umount $pve_base
@@ -72,8 +79,6 @@ clean_chroot(){
 	umount -l $pve_target/boot/efi/
 	umount -l $pve_target
 }
-
-
 
 modify_hostname(){
 	echo "modify hostname"
@@ -208,7 +213,7 @@ check_config(){
 	if [ $config_file = "http" ];then
 		wget -P /tmp/ $http_conf_url
 	else
-		if [ -z /cdrom/msg.conf ];then
+		if [ ! -z /cdrom/msg.conf ];then
 			cp /cdrom/msg.conf /tmp/
 		else
 			echo "no local conf found"
@@ -218,12 +223,21 @@ check_config(){
 }
 
 load_config(){
-	if [ ! -s /tmp/msg.conf ];then
+	if [ -s /tmp/msg.conf ];then
+		doccheck=`cat -A /tmp/msg.conf `
+		if [ -n "$doccheck" ];then
+		echo "this is windows file  dos2unix"
+		dos2unix /tmp/msg.conf
+		fi
 		#find local machine netdev
 		for i in `ls /sys/class/net/`;do echo "$i" `cat /sys/class/net/$i/address` ;done >>/tmp/netandmac
 		# use local mac to find this machine conf
-		for i in `cat /tmp/netandmac |awk '{print $2}'`;do grep -i $i msg.conf ;done >>/tmp/yourconf
+		for i in `cat /tmp/netandmac |awk '{print $2}'`;do grep -i $i /tmp/msg.conf ;done >>/tmp/yourconf
 		#load conf
+		if [ ! -s /tmp/yourconf ];then
+			echo "/tmp/yourconf is empty,mybe your server is not in config file."
+			exit 0
+		fi
 		macaddr=`awk '{print $1}' /tmp/yourconf`
 		eth=`cat /tmp/netandmac|grep -i $macaddr|awk '{print $1}'`
 		ipaddr=`awk '{print $4}' /tmp/yourconf`
@@ -239,6 +253,31 @@ load_config(){
 		echo "no config file found"
 		exit 0
 	fi
+}
+
+disk_setup(){
+	if [ ! -b $rootdisk ];then
+		echo "$rootdisk is not exist"
+		echo "exit!"
+		exit 0;
+	fi	
+	#check disk whether exist
+	echo $rootdisk
+
+	dd if=/dev/zero of=$rootdisk bs=1M count=16
+	echo "create gpt"
+	sgdisk -Z $rootdisk
+
+	echo "create bios parttion"
+	sgdisk -a1 -n1:34:2047  -t1:EF02  $rootdisk
+
+	echo "create efi parttion"
+	sgdisk -a1 -n2:1M:+512M -t2:EF00 $rootdisk
+	mkfs.vfat -F 32 "$rootdisk"2
+
+	echo "create root parttion"
+	sgdisk -a1 -n3:513M:-1G  $rootdisk
+	mkfs.ext4 -F "$rootdisk"3
 }
 
 check_config
@@ -271,3 +310,4 @@ apt_mirrors
 config_timezone
 
 clean_chroot
+reboot -f
