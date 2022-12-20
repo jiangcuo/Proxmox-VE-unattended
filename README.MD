@@ -35,6 +35,7 @@ Now, We can edit `install-pve.sh` if we want to do more.
 - install-pve.sh ->install pve to disk shell scripts
 - sart.sh ->add to .xinitrc
 - rootfs.sh -> diy rootfs
+- msg.conf -> conffile
 
 ## ISOFILE
 ```
@@ -60,15 +61,61 @@ iso download link
 https://foxi.buduanwang.vip/pan/foxi/Virtualization/proxmox/unofficialiso/PVE7.iso
 
 
-## how to use
+# How to use
 
-- gen pxe file ,see https://github.com/morph027/pve-iso-2-pxe
-- use pxe to deploy
+## Use UltraISO to modify iso
+
+## Create cluster server's config  -->msg.conf
+
+Don't more or less
+
+```
+root@Devops:~# cat /tmp/msg.conf
+#this is config file
+#server's-mac fq dn  ip_addr cidr  gateway install_way time_zone passwd  pvedisk
+EA:5A:F0:5A:B3:D2 pve2 bingsin.com 10.13.14.22 24  10.13.14.252 cdrom Asia/Shanghai P@SSword /dev/sda
+```
+
+## Choose load conf way. 
+
+### Config file with http   --> modify install-pve.sh
+
+```
+#how to load config_file from http or cdrom (whitch is use local conf-file)
+#you must set http_conf_url if you want't use http.
+config_file="http"
+http_conf_url="http://192.168.3.120:801/msg.conf"
+```
+
+replace `install-pve.sh` in iso with your install-pve.sh
+
+and push `msg.conf` to your webserver wwwroot
+ 
+### Config file with cdrom  --> modify install-pve.sh
+
+```
+#how to load config_file from http or cdrom (whitch is use local conf-file)
+#you must set http_conf_url if you want't use http.
+config_file="cdrom"
+#http_conf_url="http://192.168.3.120:801/msg.conf"
+```
+
+replace `install-pve.sh` in iso with your install-pve.sh
+
+and add `msg.conf` to your iso root
+
+## Save your iso and use pxe-iso-2-pxe 
+
+see https://github.com/morph027/pve-iso-2-pxe
+
+中文参考 "https://foxi.buduanwang.vip/virtualization/pve/1385.html/" and "
+https://www.bilibili.com/video/BV1t84y1474u/“
 
 
-## Next
+# Next
 
-- make scripts readable and intelligent.
-- load config file from cdrom or lan.
+- make scripts readable and intelligent.         --done
+- load config file from cdrom or lan.            --done
 - can add more package like ceph and so on.
-- add legacy and uefi mode support, only support uefi now.
+- add legacy and uefi mode support, only support uefi now. --done
+- test with physical server 
