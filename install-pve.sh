@@ -11,9 +11,9 @@ pve_base="/tmp/pve_base-squ"
 #eth="enp6s18"
 #fq="pve"
 #dn="bingsin.com"
-#error,it's not work .
+
 #config the install way,options is "cdrom or apt",default is cdrom.if network is lost, will use cdrom
-#install_way="cdrom"
+#install_way="cdrom"  !! error, apt it's not work .
 
 #how to load config_file from http or cdrom (whitch is use local conf-file)
 #you must set http_conf_url if you want't use http.

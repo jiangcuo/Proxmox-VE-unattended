@@ -72,9 +72,10 @@ Don't more or less
 ```
 root@Devops:~# cat /tmp/msg.conf
 #this is config file
-#server's-mac fq dn  ip_addr cidr  gateway install_way time_zone passwd  pvedisk
+#mac fq dn  ip_addr cidr  gateway install_way time_zone passwd  pvedisk
 EA:5A:F0:5A:B3:D2 pve2 bingsin.com 10.13.14.22 24  10.13.14.252 cdrom Asia/Shanghai P@SSword /dev/sda
 ```
+install_way --> apt|cdrom, use apt has some error now.
 
 ## Choose load conf way. 
 
@@ -119,3 +120,4 @@ https://www.bilibili.com/video/BV1t84y1474u/“
 - can add more package like ceph and so on.
 - add legacy and uefi mode support, only support uefi now. --done
 - test with physical server 
+- fix apt installtion error
