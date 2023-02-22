@@ -20,8 +20,6 @@
 #-----   local  -------
 ##if you set config_file="local",You need to configure the following env
 #local_env
-#pve_target="/tmp/target"
-#pve_base="/tmp/pve_base-squ"
 #rootdisk="/dev/sdb"
 #userpw="P@SSw0rd"
 #ipaddr="192.168.3.41"
@@ -35,6 +33,10 @@
 #isofile="/proxmox.iso" # optional !
 ## if you don't hava /dev/sr0,you can use proxmox.iso 
 sleep 3
+#need env
+proxmox_libdir="/var/lib/proxmox-installer"
+pve_target="/tmp/target"
+pve_base="/tmp/pve_base-squ"
 
 errlog(){
 	if [ $? != 0 ];then
@@ -164,7 +166,16 @@ install_apt(){
 	# echo "exit 0" >> $pve_target/usr/sbin/policy-rc.d
 	chroot $pve_target apt update
 	#DEBIAN_FRONTEND=noninteractive chroot $pve_target apt install --no-install-recommends init systemd -y 
-	DEBIAN_FRONTEND=noninteractive chroot $pve_target apt install --no-install-recommends ifenslave ifupdown proxmox-ve -y
+	DEBIAN_FRONTEND=noninteractive chroot $pve_target apt install --no-install-recommends ifupdown2 proxmox-ve -y || echo "failed but ok !"
+	modify_proxmox_boot_sync
+	#fix kernel postinstall error
+	mv $targetdir/var/lib/dpkg/info/pve-kernel-*.postinst ./
+	#fix ifupdown2 error
+	mv $targetdir/var/lib/dpkg/info/ifupdown2.postinst  ./
+	LC_ALL=C DEBIAN_FRONTEND=noninteractive chroot $targetdir dpkg --configure -a
+	mv ./ifupdown2.postinst $targetdir/var/lib/dpkg/info/ifupdown2.postinst
+	mv ./pve-kernel-*.postinst $targetdir/var/lib/dpkg/info/
+	restore_proxmox_boot_sync
 }
 
 install_dpkg(){
@@ -188,7 +199,6 @@ clean_proxmox_lib(){
 	proxmox_libdir="/var/lib/proxmox-installer"
     rm $pve_target/usr/sbin/policy-rc.d
 }
-
 
 diversion_add(){
 	chroot $1 dpkg-divert --package proxmox --add --rename $2
@@ -303,29 +313,58 @@ config_check(){
 		exit 0
 	fi
 	test -f /cdrom/pve-base.squashfs || errlog "can't find pve-base.squashfs! mybe /cdrom not mounted"
-	export proxmox_libdir="/var/lib/proxmox-installer"
 	test -d $proxmox_libdir || errlog "no proxmox-installer found"
 }
 
 disk_setup(){
 	dd if=/dev/zero of=$rootdisk bs=1M count=16
 	echo "create gpt"
-	sgdisk -GZ $rootdisk >/dev/null 2>&1
-	
-	echo "create bios parttion"
-	sgdisk -a1 -n1:34:2047  -t1:EF02  $rootdisk >/dev/null 2>&1
 
+	sgdisk -GZ $rootdisk >/dev/null 2>&1
+	echo "create bios parttion"
+
+	sgdisk -a1 -n1:34:2047  -t1:EF02  $rootdisk >/dev/null 2>&1
 	echo "create efi parttion"
+
 	sgdisk -a1 -n2:1M:+512M -t2:EF00 $rootdisk >/dev/null 2>&1
-	mkfs.vfat -F 32 "$rootdisk"2
 
 	echo "create root parttion"
 	sgdisk -a1 -n3:513M:-1G  $rootdisk >/dev/null 2>&1
-	mkfs.ext4 -F "$rootdisk"3
+
+	diskcheck=`echo  $rootdisk |grep  -E "nvme|nbd|pmem0"`
+	if [ -n "$diskcheck" ];then
+		echo "special detected"
+		mkfs.ext4 -F "$rootdisk"p3
+		mkfs.vfat -F 32 "$rootdisk"p2
+	else
+		mkfs.ext4 -F "$rootdisk"3
+		mkfs.vfat -F 32 "$rootdisk"2
+	fi
 }
 
 config_passwd(){
 	echo "root:$userpw" |chroot $pve_target chpasswd
+}
+
+debconfig_set(){
+	echo "locales locales/default_environment_locale select en_US.UTF-8" >> $pve_target/tmp/debconfig.txt
+	echo "locales locales/locales_to_be_generated select en_US.UTF-8 UTF-8" >> $pve_target/tmp/debconfig.txt
+	echo "samba-common samba-common/dhcp boolean false" >> $pve_target/tmp/debconfig.txt
+	echo "samba-common samba-common/workgroup string WORKGROUP" >> $pve_target/tmp/debconfig.txt
+	echo "postfix postfix/main_mailer_type select No configuration" >> $pve_target/tmp/debconfig.txt
+}
+debconfig_write(){
+	chroot $pve_target debconf-set-selections /tmp/debconfig.txt
+	chroot $pve_target rm /tmp/debconfig.txt
+}
+modify_proxmox_boot_sync(){
+	sed -i 's/^/#&/' $targetdir/etc/initramfs/post-update.d//proxmox-boot-sync
+	sed -i '1c \#!/bin/bash' $targetdir/etc/initramfs/post-update.d//proxmox-boot-sync
+}
+
+restore_proxmox_boot_sync(){
+	sed -i 's/^#//' $targetdir/etc/initramfs/post-update.d//proxmox-boot-sync
+	sed -i '1c \#!/bin/bash' $targetdir/etc/initramfs/post-update.d//proxmox-boot-sync
 }
 
 checkisofile
@@ -344,7 +383,8 @@ copy_proxmox_lib
 diversion_add $pve_target /sbin/start-stop-daemon /sbin/fake-start-stop-daemon
 diversion_add $pve_target /usr/sbin/update-grub /bin/true
 diversion_add $pve_target /usr/sbin/update-initramfs /bin/true
-
+debconfig_set
+debconfig_write
 if [ -z $install_way ];then
 	install_dpkg
 elif [ $install_way = "apt" ];then
