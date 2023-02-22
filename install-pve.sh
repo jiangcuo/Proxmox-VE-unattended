@@ -1,10 +1,11 @@
 #!/bin/bash
 #ReadME
 ##########  install_way  ###########
-#install_way="cdrom"  # optional !
+#install_way="apt"
+# optional !
 ##default is cdrom. apt now has some bug,not recommened
 #########   config_file  ##########
-#config_file="local"  # necessary!
+#config_file="local"
 ##how to load config_file from http|cdrom|local
 #-----  http  ------
 #you must set http_conf_url if you want't use http.
@@ -20,14 +21,14 @@
 #-----   local  -------
 ##if you set config_file="local",You need to configure the following env
 #local_env
-#rootdisk="/dev/sdb"
-#userpw="P@SSw0rd"
-#ipaddr="192.168.3.41"
-#netmask="24"
-#gateway="192.168.3.1"
-#eth="enp6s18"
-#fq="pve"
-#dn="bingsin.com"
+# rootdisk="/dev/nvme0n1"
+# userpw="P@SSw0rd"
+# ipaddr="192.168.3.41"
+# netmask="24"
+# gateway="192.168.3.1"
+# eth="enp6s18"
+# fq="pve"
+# dn="bingsin.com"
 #-----------------------------------------------------
 ##########  isofile  ###########
 #isofile="/proxmox.iso" # optional !
@@ -37,6 +38,7 @@ sleep 3
 proxmox_libdir="/var/lib/proxmox-installer"
 pve_target="/tmp/target"
 pve_base="/tmp/pve_base-squ"
+diskcheck=`echo  $rootdisk |grep  -E "nvme|nbd|pmem0"`
 
 errlog(){
 	if [ $? != 0 ];then
@@ -72,7 +74,12 @@ copy_roofs(){
 		rm $pve_target -rf
 	fi
 	mkdir -p $pve_target
-	mount "$rootdisk"3 $pve_target || errlog "mount rootfs disk error!"
+	if [ -n "$diskcheck" ];then
+		echo "special detected"
+		mount "$rootdisk"p3 $pve_target || errlog "mount rootfs disk error!"
+	else
+		mount "$rootdisk"3 $pve_target || errlog "mount rootfs disk error!"
+	fi
 	cp -ar  $pve_base/* $pve_target
 	umount -l $pve_base
 }
@@ -80,7 +87,6 @@ copy_roofs(){
 mount_fstab(){
 	#fstab
 	echo "create fstab"
-	diskcheck=`echo  $rootdisk |grep  -E "nvme|nbd|pmem0"`
 	if [ -n "$diskcheck" ];then
 		echo "special detected"
 		efiboot=$(blkid "$rootdisk"p2|awk  '{print $2}'|sed "s/\"//g")
@@ -176,15 +182,15 @@ install_apt(){
 	# echo "exit 0" >> $pve_target/usr/sbin/policy-rc.d
 	chroot $pve_target apt update
 	#DEBIAN_FRONTEND=noninteractive chroot $pve_target apt install --no-install-recommends init systemd -y 
-	DEBIAN_FRONTEND=noninteractive chroot $pve_target apt install --no-install-recommends ifupdown2 proxmox-ve -y || echo "failed but ok !"
+	DEBIAN_FRONTEND=noninteractive chroot $pve_target apt install --no-install-recommends ifupdown2 proxmox-ve grub-efi shim-signed grub-efi-amd64-bin grub-efi-amd64-signed console-setup bash-completion ksmtuned wget init curl nano vim iputils-* locales  -y || echo "failed but ok !"
 	modify_proxmox_boot_sync
 	#fix kernel postinstall error
-	mv $targetdir/var/lib/dpkg/info/pve-kernel-*.postinst ./
+	mv $pve_target/var/lib/dpkg/info/pve-kernel-*.postinst ./
 	#fix ifupdown2 error
-	mv $targetdir/var/lib/dpkg/info/ifupdown2.postinst  ./
-	LC_ALL=C DEBIAN_FRONTEND=noninteractive chroot $targetdir dpkg --configure -a
-	mv ./ifupdown2.postinst $targetdir/var/lib/dpkg/info/ifupdown2.postinst
-	mv ./pve-kernel-*.postinst $targetdir/var/lib/dpkg/info/
+	mv $pve_target/var/lib/dpkg/info/ifupdown2.postinst  ./
+	LC_ALL=C DEBIAN_FRONTEND=noninteractive chroot $pve_target dpkg --configure -a
+	mv ./ifupdown2.postinst $pve_target/var/lib/dpkg/info/ifupdown2.postinst
+	mv ./pve-kernel-*.postinst $pve_target/var/lib/dpkg/info/
 	restore_proxmox_boot_sync
 }
 
@@ -229,12 +235,18 @@ grub_install(){
 	echo "create grub"
 	chroot $pve_target /usr/sbin/update-initramfs -c -k all
 	echo "create efi boot"
-	mkdir $pve_target/boot/efi 
-	chroot $pve_target mount "$rootdisk"2 /boot/efi
+	mkdir $pve_target/boot/efi
+	if [ -n "$diskcheck" ];then
+		echo "special detected"
+		chroot $pve_target mount "$rootdisk"p2 /boot/efi
+	else
+		chroot $pve_target mount "$rootdisk"2 /boot/efi
+	fi
 	chroot $pve_target update-grub
-	mkdir $pve_target/boot/efi/EFI/BOOT/ -p
-	chroot $pve_target grub-install --target x86_64-efi --no-floppy --bootloader-id='proxmox' $rootdisk
-	cp $pve_target/boot/efi/EFI/proxmox/grubx64.efi $pve_target/boot/efi/EFI/BOOT/BOOTX64.EFI 
+	mkdir $pve_target/boot/efi/EFI/boot/ -p
+	chroot $pve_target grub-install --target x86_64-efi --uefi-secure-boot --no-floppy --bootloader-id='proxmox' $rootdisk
+	cp $pve_target/boot/efi/EFI/proxmox/* $pve_target/boot/efi/EFI/boot/
+	mv $pve_target/boot/efi/EFI/boot/grubx64.efi $pve_target/boot/efi/EFI/boot/bootx64.efi
 	echo "create bios boot"
 	chroot $pve_target grub-install --target=i386-pc --recheck --debug $rootdisk >/dev/null 2>&1
 }
@@ -341,7 +353,6 @@ disk_setup(){
 	echo "create root parttion"
 	sgdisk -a1 -n3:513M:-1G  $rootdisk >/dev/null 2>&1
 
-	diskcheck=`echo  $rootdisk |grep  -E "nvme|nbd|pmem0"`
 	if [ -n "$diskcheck" ];then
 		echo "special detected"
 		mkfs.ext4 -F "$rootdisk"p3
@@ -412,7 +423,6 @@ diversion_remove $pve_target /usr/sbin/update-initramfs
 
 grub_install
 enable_ssh
-apt_mirrors
 config_timezone
 config_passwd
 clean_chroot

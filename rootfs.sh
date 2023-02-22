@@ -1,6 +1,6 @@
 #!/bin/bash
 #create rootfs
-arch="arm64"
+arch="amd64"
 release="bullseye"
 rootfssrc="/tmp/rootfssrc"
 rootfssrcsqu="/root/rootf.squ"
