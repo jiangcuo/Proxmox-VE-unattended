@@ -80,11 +80,21 @@ copy_roofs(){
 mount_fstab(){
 	#fstab
 	echo "create fstab"
-	efiboot=$(blkid "$rootdisk"2|awk  '{print $2}'|sed "s/\"//g")
-	echo "proc /proc proc defaults 0 0" > $pve_target/etc/fstab
-	echo "$efiboot /boot/efi vfat defaults 0 0" >> $pve_target/etc/fstab
-	rootboot=$(blkid "$rootdisk"3|awk  '{print $2}'|sed "s/\"//g")
-	echo "$rootboot / ext4 errors=remount-ro 0 1" >> $pve_target/etc/fstab
+	diskcheck=`echo  $rootdisk |grep  -E "nvme|nbd|pmem0"`
+	if [ -n "$diskcheck" ];then
+		echo "special detected"
+		efiboot=$(blkid "$rootdisk"p2|awk  '{print $2}'|sed "s/\"//g")
+		echo "proc /proc proc defaults 0 0" > $pve_target/etc/fstab
+		echo "$efiboot /boot/efi vfat defaults 0 0" >> $pve_target/etc/fstab
+		rootboot=$(blkid "$rootdisk"p3|awk  '{print $2}'|sed "s/\"//g")
+		echo "$rootboot / ext4 errors=remount-ro 0 1" >> $pve_target/etc/fstab
+	else
+		efiboot=$(blkid "$rootdisk"2|awk  '{print $2}'|sed "s/\"//g")
+		echo "proc /proc proc defaults 0 0" > $pve_target/etc/fstab
+		echo "$efiboot /boot/efi vfat defaults 0 0" >> $pve_target/etc/fstab
+		rootboot=$(blkid "$rootdisk"3|awk  '{print $2}'|sed "s/\"//g")
+		echo "$rootboot / ext4 errors=remount-ro 0 1" >> $pve_target/etc/fstab
+	fi
 }
 
 prepare_chroot(){
@@ -358,13 +368,13 @@ debconfig_write(){
 	chroot $pve_target rm /tmp/debconfig.txt
 }
 modify_proxmox_boot_sync(){
-	sed -i 's/^/#&/' $targetdir/etc/initramfs/post-update.d//proxmox-boot-sync
-	sed -i '1c \#!/bin/bash' $targetdir/etc/initramfs/post-update.d//proxmox-boot-sync
+	sed -i 's/^/#&/' $pve_target/etc/initramfs/post-update.d//proxmox-boot-sync
+	sed -i '1c \#!/bin/bash' $pve_target/etc/initramfs/post-update.d//proxmox-boot-sync
 }
 
 restore_proxmox_boot_sync(){
-	sed -i 's/^#//' $targetdir/etc/initramfs/post-update.d//proxmox-boot-sync
-	sed -i '1c \#!/bin/bash' $targetdir/etc/initramfs/post-update.d//proxmox-boot-sync
+	sed -i 's/^#//' $pve_target/etc/initramfs/post-update.d//proxmox-boot-sync
+	sed -i '1c \#!/bin/bash' $pve_target/etc/initramfs/post-update.d//proxmox-boot-sync
 }
 
 checkisofile

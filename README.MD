@@ -58,7 +58,7 @@ root@jammy:~/2# tree -L 1
 ```
 
 iso download link
-https://foxi.buduanwang.vip/pan/foxi/Virtualization/proxmox/unofficialiso/PVE7.iso
+https://mirrors.apqa.cn/d/proxmox-edge/unofficialiso/PVE7.iso
 
 
 # How to use
