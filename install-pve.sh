@@ -252,7 +252,31 @@ grub_install(){
 }
 
 config_postfix(){
-	sed -i "s/^#\?myhostname.*/myhostname=$fq.$dn/" $pve_target/etc/postfix/main.cf
+	cat << EOF > $pve_target/etc/postfix/main.cf
+# See /usr/share/postfix/main.cf.dist for a commented, more complete version
+
+myhostname=$fq.$dn
+
+smtpd_banner = \$myhostname ESMTP \$mail_name (Debian/GNU)
+biff = no
+
+# appending .domain is the MUA's job.
+append_dot_mydomain = no
+
+# Uncomment the next line to generate "delayed mail" warnings
+#delay_warning_time = 4h
+
+alias_maps = hash:/etc/aliases
+alias_database = hash:/etc/aliases
+mydestination = \$myhostname, localhost.\$mydomain, localhost
+relayhost =
+mynetworks = 127.0.0.0/8
+inet_interfaces = loopback-only
+recipient_delimiter = +
+
+compatibility_level = 2
+
+EOF
 	chroot $pve_target /usr/sbin/postfix check
 	chroot $pve_target /usr/sbin/postsuper -d ALL
 	chroot $pve_target /usr/bin/newaliases
