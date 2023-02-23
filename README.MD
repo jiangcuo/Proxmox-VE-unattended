@@ -173,5 +173,7 @@ https://www.bilibili.com/video/BV1t84y1474u/“
 - load config file from cdrom or lan.            --done
 - can add more package like ceph and so on.
 - add legacy and uefi mode support, only support uefi now. --done
-- test with physical server 
-- fix apt installtion error
+- test with physical server    --done
+- fix apt installtion error    --done
+- random config --done
+- Able to generate a new modified ISO directly based on the official ISO
