@@ -107,7 +107,7 @@ and add `msg.conf` to your iso root
 
  
 ### 3.3. Config file with local  --> modify install-pve.sh
-
+* local env from scripts, need config it first
 ```
 #how to load config_file from http or cdrom (whitch is use local conf-file)
 #you must set http_conf_url if you want't use http.
@@ -130,7 +130,8 @@ dn="bingsin.com"
 replace `install-pve.sh` in iso with your install-pve.sh
 
 ### 3.4. Config file with rand  --> modify install-pve.sh
-
+* Use DHCP to obtain the NIC name and IP
+* Generate hostname randomly
 ```
 #how to load config_file from http or cdrom (whitch is use local conf-file)
 #you must set http_conf_url if you want't use http.
