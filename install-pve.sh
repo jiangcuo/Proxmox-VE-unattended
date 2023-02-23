@@ -1,44 +1,61 @@
 #!/bin/bash
 #ReadME
 ##########  install_way  ###########
-#install_way="apt"
-# optional !
-##default is cdrom. apt now has some bug,not recommened
+#install_way="apt"  # apt|cdrom optional ! default is cdrom. 
 #########   config_file  ##########
-#config_file="local"
-##how to load config_file from http|cdrom|local
+#config_file="local" # how to load config_file from http|cdrom|local|rand
 #-----  http  ------
 #you must set http_conf_url if you want't use http.
 ##http_conf_url="http://192.168.3.120:801/msg.conf"
 ##msg.conf like
-###mac fq dn  ip_addr cidr  gateway install_way time_zone passwd  pvedisk 
+###mac hostname dn  ip_addr cidr  gateway install_way time_zone passwd  pvedisk 
 ###EA:5A:F0:5A:B3:D2 pve2 bingsin.com 10.13.14.22 24  10.13.14.252 cdrom Asia/Shanghai P@SSword /dev/sda
 ###EA:5A:F0:5A:B3:D3 pve3 bingsin.com 10.13.14.23 24  10.13.14.252 cdrom Asia/Shanghai P@SSword /dev/sda
 ###EA:5A:F0:5A:B3:D4 pve4 bingsin.com 10.13.14.24 24  10.13.14.252 cdrom Asia/Shanghai P@SSword /dev/sda
 ###EA:5A:F0:5A:B3:D5 pve5 bingsin.com 10.13.14.25 24  10.13.14.252 cdrom Asia/Shanghai P@SSword /dev/sdb
 ###EA:5A:F0:5A:B3:D6 pve6 bingsin.com 10.13.14.26 24  10.13.14.252 cdrom Asia/Shanghai P@SSword /dev/sda
 ###EA:5A:F0:5A:B3:D7 pve7 bingsin.com 10.13.14.27 24  10.13.14.252 cdrom Asia/Shanghai P@SSword /dev/sda
+#-----   cdrom  -------
+#you must set add msg.conf to the cdrom root dir.
 #-----   local  -------
-##if you set config_file="local",You need to configure the following env
-#local_env
-# rootdisk="/dev/nvme0n1"
-# userpw="P@SSw0rd"
-# ipaddr="192.168.3.41"
-# netmask="24"
-# gateway="192.168.3.1"
-# eth="enp6s18"
-# fq="pve"
-# dn="bingsin.com"
-#-----------------------------------------------------
+##if you set config_file="local",You need to configure the local_config function 
+#-----   rand  -------
+##if you set config_file="rand",You need to configure the rand_config function.
 ##########  isofile  ###########
 #isofile="/proxmox.iso" # optional !
 ## if you don't hava /dev/sr0,you can use proxmox.iso 
 sleep 3
-#need env
+#force env
 proxmox_libdir="/var/lib/proxmox-installer"
 pve_target="/tmp/target"
 pve_base="/tmp/pve_base-squ"
-diskcheck=`echo  $rootdisk |grep  -E "nvme|nbd|pmem0"`
+
+local_config(){
+	rootdisk=""
+	userpw="P@SSw0rd"
+	ipaddr="192.168.3.41"
+	netmask="24"
+	gateway="192.168.3.1"
+	eth="enp6s18"
+	fq="pve"
+	dn="bingsin.com"
+}
+
+rand_config(){
+	echo > /tmp/nets
+	echo > /tmp/ips
+	for nets in `ls /sys/class/net/|grep -v lo`;do
+	echo "$nets" `ip addr show dev $nets |grep -v inet6|grep inet|head -n 1|awk '{print $2}'` >>/tmp/ips;
+	done
+	eth=`grep / /tmp/ips |head -n 1 |awk '{print $1}'`
+	ipaddr=`grep / /tmp/ips |head -n 1 |awk '{print $2}'|cut -d "/" -f1`
+	netmask=`grep / /tmp/ips |head -n 1 |awk '{print $2}'|cut -d "/" -f2`
+	gateway=
+	dn="bingsin.com"
+	fq=`strings /dev/urandom |tr -dc a-z | head -c14`
+	userpw="P@SSw0rd"
+	rootdisk=""
+}
 
 errlog(){
 	if [ $? != 0 ];then
@@ -46,7 +63,6 @@ errlog(){
 		exit 0
 	fi
 }
-
 
 checkisofile(){
 	if [ ! -z $isofile ];then
@@ -62,8 +78,9 @@ checkisofile(){
 copy_roofs(){
 	if [ -d $pve_base  ];then
 		echo "$pve_base is exist"
-		echo "delete!"
-		rm $pve_base -rf
+		echo "umount"
+		umount -l $pve_base
+		rm $pve_base
 	fi
 	mkdir  $pve_base 
 	mount  /cdrom/pve-base.squashfs  $pve_base -t squashfs -o loop  || errlog "can't mount pve-base.squashfs!"
@@ -71,6 +88,7 @@ copy_roofs(){
 	if [ -d $pve_target  ];then
 		echo "$pve_target is exist"
 		echo "delete!"
+		umount $pve_target
 		rm $pve_target -rf
 	fi
 	mkdir -p $pve_target
@@ -147,7 +165,22 @@ EOF
 modify_network(){
 	echo "modify network"
 	echo "nameserver 223.5.5.5" > $pve_target/etc/resolv.conf
-    cat << EOF > $pve_target/etc/network/interfaces 
+	if [ ! -n "$gateway" ];then
+   		cat << EOF > $pve_target/etc/network/interfaces 
+auto lo
+iface lo inet loopback
+
+iface $eth inet manual
+
+auto vmbr0
+iface vmbr0 inet static
+	address $ipaddr/$netmask
+	bridge-ports $eth
+	bridge-stp off
+	bridge-fd 0
+EOF
+	else
+	   	cat << EOF > $pve_target/etc/network/interfaces 
 auto lo
 iface lo inet loopback
 
@@ -161,6 +194,7 @@ iface vmbr0 inet static
 	bridge-stp off
 	bridge-fd 0
 EOF
+	fi
 }
 
 apt_mirrors(){
@@ -176,6 +210,7 @@ deb http://mirrors.ustc.edu.cn/proxmox/debian bullseye pve-no-subscription
 EOF
 }
 
+
 install_apt(){
 	apt_mirrors
 	# echo "#!/bin/sh" > $pve_target/usr/sbin/policy-rc.d
@@ -183,15 +218,7 @@ install_apt(){
 	chroot $pve_target apt update
 	#DEBIAN_FRONTEND=noninteractive chroot $pve_target apt install --no-install-recommends init systemd -y 
 	DEBIAN_FRONTEND=noninteractive chroot $pve_target apt install --no-install-recommends ifupdown2 proxmox-ve grub-efi shim-signed grub-efi-amd64-bin grub-efi-amd64-signed console-setup bash-completion ksmtuned wget init curl nano vim iputils-* locales  -y || echo "failed but ok !"
-	modify_proxmox_boot_sync
-	#fix kernel postinstall error
-	mv $pve_target/var/lib/dpkg/info/pve-kernel-*.postinst ./
-	#fix ifupdown2 error
-	mv $pve_target/var/lib/dpkg/info/ifupdown2.postinst  ./
-	LC_ALL=C DEBIAN_FRONTEND=noninteractive chroot $pve_target dpkg --configure -a
-	mv ./ifupdown2.postinst $pve_target/var/lib/dpkg/info/ifupdown2.postinst
-	mv ./pve-kernel-*.postinst $pve_target/var/lib/dpkg/info/
-	restore_proxmox_boot_sync
+	fix_pkg_systemderror
 }
 
 install_dpkg(){
@@ -202,8 +229,22 @@ install_dpkg(){
 	do 
 		LC_ALL=C DEBIAN_FRONTEND=noninteractive chroot $pve_target dpkg --force-depends --no-triggers --force-unsafe-io --force-confold  --unpack /media/proxmox/packages/$i;
 	done
-	LC_ALL=C DEBIAN_FRONTEND=noninteractive chroot $pve_target dpkg --force-confold --configure --force-unsafe-io -a 
+	LC_ALL=C DEBIAN_FRONTEND=noninteractive chroot $pve_target dpkg --force-confold --configure --force-unsafe-io -a || echo "failed but ok"
+	fix_pkg_systemderror
 	umount -l $pve_target/media
+}
+
+fix_pkg_systemderror(){
+	modify_proxmox_boot_sync
+	#fix kernel postinstall error
+	mv $pve_target/var/lib/dpkg/info/pve-kernel-*.postinst ./
+	#fix ifupdown2 error
+	mv $pve_target/var/lib/dpkg/info/ifupdown2.postinst  ./
+	LC_ALL=C DEBIAN_FRONTEND=noninteractive chroot $pve_target dpkg --configure -a
+	mv ./ifupdown2.postinst $pve_target/var/lib/dpkg/info/ifupdown2.postinst
+	mv ./pve-kernel-*.postinst $pve_target/var/lib/dpkg/info/
+	restore_proxmox_boot_sync
+	chroot $pve_target systemctl enable networking  >/dev/null 2>&1
 }
 
 copy_proxmox_lib(){
@@ -229,18 +270,22 @@ enable_ssh(){
 	echo "allow root login with openssh"
 	sed -i 's/^#\?PermitRootLogin.*/PermitRootLogin yes/' $pve_target/etc/ssh/sshd_config
 	sed -i 's/^#\?PasswordAuthentication.*/PasswordAuthentication yes/' $pve_target/etc/ssh/sshd_config
+	# sshid=""
+	# mkdir $pve_target/root/.ssh/
+	# echo "$ssdid" >>$pve_target/root/.ssh/authorized_keys
+
 }
 
 grub_install(){
 	echo "create grub"
-	chroot $pve_target /usr/sbin/update-initramfs -c -k all
+	chroot $pve_target /usr/sbin/update-initramfs -c -k all  >/dev/null 2>&1
 	echo "create efi boot"
 	mkdir $pve_target/boot/efi
 	if [ -n "$diskcheck" ];then
 		echo "special detected"
-		chroot $pve_target mount "$rootdisk"p2 /boot/efi
+		chroot $pve_target mount "$rootdisk"p2 /boot/efi || errlog "mount boot partition failed !"
 	else
-		chroot $pve_target mount "$rootdisk"2 /boot/efi
+		chroot $pve_target mount "$rootdisk"2 /boot/efi || errlog "mount boot partition failed !"
 	fi
 	chroot $pve_target update-grub
 	mkdir $pve_target/boot/efi/EFI/boot/ -p
@@ -293,18 +338,17 @@ config_timezone(){
 
 check_config(){
 	if [ $config_file = "http" ];then
+		echo "config_file is set to http"
 		wget -P /tmp/ $http_conf_url 
 	elif [ $config_file = "cdrom" ];then 
+		echo "config_file is set to cdrom"
 		if [ -e /cdrom/msg.conf ];then
 			cp /cdrom/msg.conf /tmp/
 		else
-			echo "no local conf found"
-			exit 0
+			errlog "no local conf found"
 		fi
-	elif [ $config_file = "local" ];then
-		echo "config is set to local"
 	else
-	 	echo "config_file $config_file not correct !"
+	 	errlog "config_file $config_file not correct !"
 	fi
 }
 
@@ -316,13 +360,12 @@ load_config(){
 		dos2unix /tmp/msg.conf
 		fi
 		#find local machine netdev
-		for i in `ls /sys/class/net/`;do echo "$i" `cat /sys/class/net/$i/address` ;done >>/tmp/netandmac
+		for i in `ls /sys/class/net/|grep -v lo`;do echo "$i" `cat /sys/class/net/$i/address` ;done >/tmp/netandmac
 		# use local mac to find this machine conf
-		for i in `cat /tmp/netandmac |awk '{print $2}'`;do grep -i $i /tmp/msg.conf ;done >>/tmp/yourconf
+		for i in `cat /tmp/netandmac |awk '{print $2}'`;do grep -i $i /tmp/msg.conf ;done >/tmp/yourconf
 		#load conf
 		if [ ! -s /tmp/yourconf ];then
-			echo "/tmp/yourconf is empty,mybe your server is not in config file."
-			exit 0
+			errlog "/tmp/yourconf is empty,mybe your server is not in config file."
 		fi
 		macaddr=`awk '{print $1}' /tmp/yourconf`
 		eth=`cat /tmp/netandmac|grep -i $macaddr|awk '{print $1}'`
@@ -336,8 +379,7 @@ load_config(){
 		userpw=`awk '{print $9}' /tmp/yourconf`
 		rootdisk=`awk '{print $10}' /tmp/yourconf`
 	else
-		echo "no config file found"
-		exit 0
+		errlog  "no config file found"
 	fi
 }
 
@@ -349,17 +391,14 @@ config_check(){
 		errlog "$rootdisk is not exist"
 	fi
 	if [ ! -z "$(lsblk -f|grep $rootdisk|grep LVM2)" ];then
-		echo "Detected lvm filesystem on,abort!"
-		echo "please remove it and try again."
-		exit 0
+		errlog "Detected lvm filesystem on,abort! please remove it and try again."
 	fi
 	if [ ! -z "$(df -h|grep $rootdisk)" ];then
-		echo "Detected $rootdisk has mounted !"
-		echo "plese umount first"
-		exit 0
+		errlog "Detected $rootdisk has mounted ! plese umount first"
 	fi
 	test -f /cdrom/pve-base.squashfs || errlog "can't find pve-base.squashfs! mybe /cdrom not mounted"
 	test -d $proxmox_libdir || errlog "no proxmox-installer found"
+	diskcheck=`echo $rootdisk |grep  -E "nvme|nbd|pmem0"`
 }
 
 disk_setup(){
@@ -413,11 +452,18 @@ restore_proxmox_boot_sync(){
 }
 
 checkisofile
-check_config
-if [  $config_file != "local" ];then
+if [ $config_file = "local" ];then
+	echo "config_file is set to local"
+	local_config
+elif [ $config_file = "rand" ];then
+	echo "config_file is set to rand"
+	rand_config
+else
+	check_config
 	load_config
 fi
 config_check
+
 disk_setup
 copy_roofs
 mount_fstab
@@ -431,13 +477,16 @@ diversion_add $pve_target /usr/sbin/update-initramfs /bin/true
 debconfig_set
 debconfig_write
 if [ -z $install_way ];then
+	echo "install way is set to dpkg !" 
 	install_dpkg
 elif [ $install_way = "apt" ];then
+	echo "install way is set to apt !" 
 	install_apt
 elif [ $install_way = "cdrom" ];then
+	echo "install way is set to dpkg !" 
 	install_dpkg
 else
-	echo "install_way not corrected"
+	errlog "install_way not corrected !"
 fi
 
 clean_proxmox_lib
@@ -447,6 +496,7 @@ diversion_remove $pve_target /usr/sbin/update-initramfs
 
 grub_install
 enable_ssh
+config_postfix
 config_timezone
 config_passwd
 clean_chroot

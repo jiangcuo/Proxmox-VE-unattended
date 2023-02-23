@@ -61,30 +61,30 @@ iso download link
 https://mirrors.apqa.cn/d/proxmox-edge/unofficialiso/PVE7.iso
 
 
-# How to use
+#  How to use
 
-## Use UltraISO to modify iso
+## 1. Use UltraISO to modify iso
 
-## Create cluster server's config  -->msg.conf
+## 2. Create cluster server's config  -->msg.conf
 
 Don't more or less
 
 ```
 root@Devops:~# cat /tmp/msg.conf
 #this is config file
-#mac fq dn  ip_addr cidr  gateway install_way time_zone passwd  pvedisk
+#mac hostname dn  ip_addr cidr  gateway install_way time_zone passwd  pvedisk
 EA:5A:F0:5A:B3:D2 pve2 bingsin.com 10.13.14.22 24  10.13.14.252 cdrom Asia/Shanghai P@SSword /dev/sda
 ```
-install_way --> apt|cdrom, use apt has some error now.
+install_way --> apt|cdrom
 
-## Choose load conf way. 
+## 3. Choose load conf way. 
 
-### Config file with http   --> modify install-pve.sh
+### 3.1. Config file with http   --> modify install-pve.sh
 
 ```
 #how to load config_file from http or cdrom (whitch is use local conf-file)
 #you must set http_conf_url if you want't use http.
-config_file="http"
+config_file="http"            --< set http
 http_conf_url="http://192.168.3.120:801/msg.conf"
 ```
 
@@ -92,12 +92,12 @@ replace `install-pve.sh` in iso with your install-pve.sh
 
 and push `msg.conf` to your webserver wwwroot
  
-### Config file with cdrom  --> modify install-pve.sh
+### 3.2. Config file with cdrom  --> modify install-pve.sh
 
 ```
 #how to load config_file from http or cdrom (whitch is use local conf-file)
 #you must set http_conf_url if you want't use http.
-config_file="cdrom"
+config_file="cdrom"           --< set cdrom
 #http_conf_url="http://192.168.3.120:801/msg.conf"
 ```
 
@@ -105,7 +105,60 @@ replace `install-pve.sh` in iso with your install-pve.sh
 
 and add `msg.conf` to your iso root
 
-## Save your iso and use pxe-iso-2-pxe 
+ 
+### 3.3. Config file with local  --> modify install-pve.sh
+
+```
+#how to load config_file from http or cdrom (whitch is use local conf-file)
+#you must set http_conf_url if you want't use http.
+config_file="local"           --< set local
+#http_conf_url="http://192.168.3.120:801/msg.conf"
+```
+edit `local_config` function 
+```
+local_config(){
+rootdisk="/dev/nvme0n1" ---> set your disk which is going to install
+userpw="P@SSw0rd"
+ipaddr="192.168.3.41"
+netmask="24"
+gateway="192.168.3.1"
+eth="enp6s18"
+fq="pve"
+dn="bingsin.com"
+}
+```
+replace `install-pve.sh` in iso with your install-pve.sh
+
+### 3.4. Config file with rand  --> modify install-pve.sh
+
+```
+#how to load config_file from http or cdrom (whitch is use local conf-file)
+#you must set http_conf_url if you want't use http.
+config_file="rand"           --< set local
+#http_conf_url="http://192.168.3.120:801/msg.conf"
+```
+edit `rand_config` function 
+```
+rand_config(){
+	echo > /tmp/nets
+	echo > /tmp/ips
+	for nets in `ls /sys/class/net/|grep -v lo`;do
+	echo "$nets" `ip addr show dev $nets |grep -v inet6|grep inet|head -n 1|awk '{print $2}'` >>/tmp/ips;
+	done
+	eth=`grep / /tmp/ips |head -n 1 |awk '{print $1}'`
+	ipaddr=`grep / /tmp/ips |head -n 1 |awk '{print $2}'|cut -d "/" -f1`
+	netmask=`grep / /tmp/ips |head -n 1 |awk '{print $2}'|cut -d "/" -f2`
+	gateway=                     --> if has different ip range,We suggest  set gateway to null
+	dn="bingsin.com"
+	fq=`strings /dev/urandom |tr -dc a-z | head -c14`
+	userpw="P@SSw0rd"  
+	rootdisk=""                  ---> set your disk which is going to install
+}
+```
+replace `install-pve.sh` in iso with your install-pve.sh
+
+
+## 4. Save your iso and use pxe-iso-2-pxe 
 
 see https://github.com/morph027/pve-iso-2-pxe
 
