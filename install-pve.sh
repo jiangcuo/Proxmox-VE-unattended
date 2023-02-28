@@ -1,9 +1,9 @@
 #!/bin/bash
 #ReadME
 ##########  install_way  ###########
-#install_way="apt"  # apt|cdrom optional ! default is cdrom. 
+install_way="apt"  # apt|cdrom optional ! default is cdrom. 
 #########   config_file  ##########
-#config_file="local" # how to load config_file from http|cdrom|local|rand
+config_file="local" # how to load config_file from http|cdrom|local|rand
 #-----  http  ------
 #you must set http_conf_url if you want't use http.
 ##http_conf_url="http://192.168.3.120:801/msg.conf"
@@ -22,7 +22,7 @@
 #-----   rand  -------
 ##if you set config_file="rand",You need to configure the rand_config function.
 ##########  isofile  ###########
-#isofile="/proxmox.iso" # optional !
+isofile="/2/PVE-unattached-ceph.iso" # optional !
 ## if you don't hava /dev/sr0,you can use proxmox.iso 
 sleep 3
 #force env
@@ -31,13 +31,13 @@ pve_target="/tmp/target"
 pve_base="/tmp/pve_base-squ"
 
 local_config(){
-	rootdisk=""
-	userpw="P@SSw0rd"
-	ipaddr="192.168.3.41"
+	rootdisk="/dev/sdd"
+	userpw="bingsin"
+	ipaddr="10.13.14.5"
 	netmask="24"
-	gateway="192.168.3.1"
-	eth="enp6s18"
-	fq="pve"
+	gateway="10.13.14.252"
+	eth="enp68s0"
+	fq="pve5"
 	dn="bingsin.com"
 }
 
