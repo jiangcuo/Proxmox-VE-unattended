@@ -1,9 +1,9 @@
 #!/bin/bash
 #ReadME
 ##########  install_way  ###########
-install_way="apt"  # apt|cdrom optional ! default is cdrom. 
+install_way="cdrom"  # apt|cdrom optional ! default is cdrom. 
 #########   config_file  ##########
-config_file="local" # how to load config_file from http|cdrom|local|rand
+config_file="rand" # how to load config_file from http|cdrom|local|rand
 #-----  http  ------
 #you must set http_conf_url if you want't use http.
 ##http_conf_url="http://192.168.3.120:801/msg.conf"
@@ -22,13 +22,12 @@ config_file="local" # how to load config_file from http|cdrom|local|rand
 #-----   rand  -------
 ##if you set config_file="rand",You need to configure the rand_config function.
 ##########  isofile  ###########
-isofile="/2/PVE-unattached-ceph.iso" # optional !
+#isofile="/2/PVE-unattached-ceph.iso" # optional !
 ## if you don't hava /dev/sr0,you can use proxmox.iso 
 sleep 3
 #force env
 proxmox_libdir="/var/lib/proxmox-installer"
 pve_target="/tmp/target"
-pve_base="/tmp/pve_base-squ"
 
 local_config(){
 	rootdisk="/dev/sdd"
@@ -54,7 +53,8 @@ rand_config(){
 	dn="bingsin.com"
 	fq=`strings /dev/urandom |tr -dc a-z | head -c14`
 	userpw="P@SSw0rd"
-	rootdisk=""
+	rootdisk="/dev/sda" # two disk need zfs , eg. rootdisk="/dev/sda /dev/sdb".
+	# usezfs="1" # will use zfs mirrors.
 }
 
 errlog(){
@@ -76,15 +76,9 @@ checkisofile(){
 }
 
 copy_roofs(){
-	if [ -d $pve_base  ];then
-		echo "$pve_base is exist"
-		echo "umount"
-		umount -l $pve_base
-		rm $pve_base
-	fi
-	mkdir  $pve_base 
-	mount  /cdrom/pve-base.squashfs  $pve_base -t squashfs -o loop  || errlog "can't mount pve-base.squashfs!"
-	echo "copy pve_target"
+	if [  ! -z $usezfs ];then
+	unsquashfs  -f -dest $pve_target -i /cdrom/pve-base.squashfs
+	else
 	if [ -d $pve_target  ];then
 		echo "$pve_target is exist"
 		echo "delete!"
@@ -94,12 +88,12 @@ copy_roofs(){
 	mkdir -p $pve_target
 	if [ -n "$diskcheck" ];then
 		echo "special detected"
-		mount "$rootdisk"p3 $pve_target || errlog "mount rootfs disk error!"
+		mount "$rootdisk"p3 -t ext4 $pve_target || errlog "mount rootfs disk error!"
 	else
-		mount "$rootdisk"3 $pve_target || errlog "mount rootfs disk error!"
+		mount "$rootdisk"3 -t ext4 $pve_target || errlog "mount rootfs disk error!"
 	fi
-	cp -ar  $pve_base/* $pve_target
-	umount -l $pve_base
+	unsquashfs  -f -dest $pve_target -i /cdrom/pve-base.squashfs
+	fi
 }
 
 mount_fstab(){
@@ -139,8 +133,8 @@ clean_chroot(){
 	echo clean
 	umount -l $pve_target/proc
 	umount -l $pve_target/sys
-	umount -l $pve_target/dev
 	umount -l $pve_target/dev/pts
+	umount -l $pve_target/dev
 	umount -l $pve_target/boot/efi/
 	umount -l $pve_target
 }
@@ -237,12 +231,14 @@ install_dpkg(){
 fix_pkg_systemderror(){
 	modify_proxmox_boot_sync
 	#fix kernel postinstall error
-	mv $pve_target/var/lib/dpkg/info/pve-kernel-*.postinst ./
+	cp $pve_target/var/lib/dpkg/info/pve-kernel-*.postinst /tmp/
+	rm $pve_target/var/lib/dpkg/info/pve-kernel-*.postinst
 	#fix ifupdown2 error
-	mv $pve_target/var/lib/dpkg/info/ifupdown2.postinst  ./
+	cp $pve_target/var/lib/dpkg/info/ifupdown2.postinst  /tmp/
+	rm $pve_target/var/lib/dpkg/info/ifupdown2.postinst  
 	LC_ALL=C DEBIAN_FRONTEND=noninteractive chroot $pve_target dpkg --configure -a
-	mv ./ifupdown2.postinst $pve_target/var/lib/dpkg/info/ifupdown2.postinst
-	mv ./pve-kernel-*.postinst $pve_target/var/lib/dpkg/info/
+	cp /tmp/ifupdown2.postinst $pve_target/var/lib/dpkg/info/ifupdown2.postinst
+	cp /tmp/pve-kernel-*.postinst $pve_target/var/lib/dpkg/info/
 	restore_proxmox_boot_sync
 	chroot $pve_target systemctl enable networking  >/dev/null 2>&1
 }
@@ -294,6 +290,46 @@ grub_install(){
 	mv $pve_target/boot/efi/EFI/boot/grubx64.efi $pve_target/boot/efi/EFI/boot/bootx64.efi
 	echo "create bios boot"
 	chroot $pve_target grub-install --target=i386-pc --recheck --debug $rootdisk >/dev/null 2>&1
+}
+
+zfs_install(){
+	echo "create systemd boot"
+	echo "root=ZFS=rpool/ROOT/pve-1 boot=zfs" > $pve_target/etc/kernel/cmdline
+	echo "GRUB_CMDLINE_LINUX=\"root=ZFS=rpool/ROOT/pve-1 boot=zfs\"" > $pve_target/etc/default/grub.d/zfs.cfg 
+	echo >  $pve_target/etc/kernel/proxmox-boot-uuids
+	for rootdisks in $rootdisk;do
+		diskcheck=`echo $rootdisk |grep  -E "nvme|nbd|pmem0"`
+		if [ -n "$diskcheck" ];then
+			chroot $pve_target proxmox-boot-tool format "$rootdisks"p2 --force 
+			blkid "$rootdisks"p2 |awk '{print $2}'|cut -d "\"" -f2 >> $pve_target/etc/kernel/proxmox-boot-uuids
+			chroot $pve_target proxmox-boot-tool init "$rootdisks"p2 
+		else
+			chroot $pve_target proxmox-boot-tool format "$rootdisks"2 --force  
+			blkid "$rootdisks"2 |awk '{print $2}'|cut -d "\"" -f2 >>$pve_target/etc/kernel/proxmox-boot-uuids
+			chroot $pve_target proxmox-boot-tool init "$rootdisks"2 
+		fi
+	done
+	cp /etc/hostid $pve_target/etc
+	systemd-id128 new > $pve_target/etc/machine-id
+	chroot $pve_target /usr/sbin/update-initramfs -c -k all  >/dev/null 2>&1
+	chroot $pve_target  proxmox-boot-tool refresh
+	chroot $pve_target update-grub
+	mkdir $pve_target/boot/efi/EFI/boot/ -p
+	for rootdisks in $rootdisk;do
+		diskcheck=`echo $rootdisk |grep  -E "nvme|nbd|pmem0"`
+		if [ ! -d /sys/firmware/efi ];then
+				if [ -n "$diskcheck" ];then
+					echo "special detected"
+					chroot $pve_target mount "$rootdisks"p2 /boot/efi || errlog "mount boot partition failed !"
+				else
+					chroot $pve_target mount "$rootdisks"2 /boot/efi || errlog "mount boot partition failed !"
+				fi
+			chroot $pve_target /usr/sbin/grub-install.real --target x86_64-efi --uefi-secure-boot --no-floppy --bootloader-id='proxmox' $rootdisks
+			cp $pve_target/boot/efi/EFI/proxmox/* $pve_target/boot/efi/EFI/boot/
+			mv $pve_target/boot/efi/EFI/boot/grubx64.efi $pve_target/boot/efi/EFI/boot/bootx64.efi
+			chroot $pve_target  umount /boot/efi
+		fi
+	done
 }
 
 config_postfix(){
@@ -387,44 +423,67 @@ config_check(){
 	if [ -z $rootdisk ];then
 	errlog "disk not defined"
 	fi
-	if [ ! -b $rootdisk ];then
-		errlog "$rootdisk is not exist"
+	for rootdisks in $rootdisk; do
+	if [ ! -b $rootdisks ];then
+		errlog "$rootdisks is not exist"
 	fi
-	if [ ! -z "$(lsblk -f|grep $rootdisk|grep LVM2)" ];then
-		errlog "Detected lvm filesystem on,abort! please remove it and try again."
+	if [ ! -z "$(lsblk -f|grep $rootdisks|grep LVM2)" ];then
+		errlog "Detected lvm filesystem on $rootdisks ,abort! please remove it and try again."
 	fi
-	if [ ! -z "$(df -h|grep $rootdisk)" ];then
-		errlog "Detected $rootdisk has mounted ! plese umount first"
+	if [ ! -z "$(df -h|grep $rootdisks)" ];then
+		errlog "Detected $rootdisks has mounted ! plese umount first"
 	fi
+	done
 	test -f /cdrom/pve-base.squashfs || errlog "can't find pve-base.squashfs! mybe /cdrom not mounted"
 	test -d $proxmox_libdir || errlog "no proxmox-installer found"
-	diskcheck=`echo $rootdisk |grep  -E "nvme|nbd|pmem0"`
+	
 }
 
 disk_setup(){
-	dd if=/dev/zero of=$rootdisk bs=1M count=16
+	for rootdisks in $rootdisk; do
+	dd if=/dev/zero of=$rootdisks bs=1M count=2048
 	echo "create gpt"
 
-	sgdisk -GZ $rootdisk >/dev/null 2>&1
+	sgdisk -GZ $rootdisks >/dev/null 2>&1
 	echo "create bios parttion"
 
-	sgdisk -a1 -n1:34:2047  -t1:EF02  $rootdisk >/dev/null 2>&1
+	sgdisk -a1 -n1:34:2047  -t1:EF02  $rootdisks >/dev/null 2>&1
 	echo "create efi parttion"
 
-	sgdisk -a1 -n2:1M:+512M -t2:EF00 $rootdisk >/dev/null 2>&1
+	sgdisk -a1 -n2:1M:+512M -t2:EF00 $rootdisks >/dev/null 2>&1
 
 	echo "create root parttion"
-	sgdisk -a1 -n3:513M:-1G  $rootdisk >/dev/null 2>&1
-
+	sgdisk -a1 -n3:513M:-1G  $rootdisks >/dev/null 2>&1
+	diskcheck=`echo $rootdisk |grep  -E "nvme|nbd|pmem0"`
 	if [ -n "$diskcheck" ];then
 		echo "special detected"
-		mkfs.ext4 -F "$rootdisk"p3
-		mkfs.vfat -F 32 "$rootdisk"p2
+		mkfs.ext4 -F "$rootdisks"p3
+		mkfs.vfat -F 32 "$rootdisks"p2
 	else
-		mkfs.ext4 -F "$rootdisk"3
-		mkfs.vfat -F 32 "$rootdisk"2
+		mkfs.ext4 -F "$rootdisks"3
+		mkfs.vfat -F 32 "$rootdisks"2
 	fi
+	done
 }
+
+zfs_mirrors(){
+		modprobe zfs
+		echo >/tmp/zfsdev
+		for rootdisks in $rootdisk;do
+			diskcheck=`echo $rootdisk |grep  -E "nvme|nbd|pmem0"`
+			if [ -n "$diskcheck" ];then
+					echo -n " $rootdisks"p3 >>/tmp/zfsdev
+			else
+					echo -n " $rootdisks"3 >>/tmp/zfsdev
+			fi
+		done
+		zpool create -f -o ashift=12 rpool mirror `cat /tmp/zfsdev` || errlog "zfs create mirrors failed"
+		zfs create rpool/ROOT  || errlog "zfs create rpool/ROOT failed"
+		zfs create rpool/data  || errlog "zfs create rpool/data failed"
+		zfs create rpool/ROOT/pve-1 || errlog "zfs create rpool/ROOT/pve-1 failed"
+		pve_target="/rpool/ROOT/pve-1"
+}
+
 
 config_passwd(){
 	echo "root:$userpw" |chroot $pve_target chpasswd
@@ -465,8 +524,14 @@ fi
 config_check
 
 disk_setup
+if [ ! -z $usezfs ];then
+zfs_mirrors
+fi
+
 copy_roofs
+if [ -z $usezfs ];then
 mount_fstab
+fi
 prepare_chroot
 modify_hostname
 modify_network
@@ -494,10 +559,20 @@ diversion_remove $pve_target /sbin/start-stop-daemon
 diversion_remove $pve_target /usr/sbin/update-grub
 diversion_remove $pve_target /usr/sbin/update-initramfs
 
+if [ -z $usezfs ];then
 grub_install
+else
+zfs_install
+fi
 enable_ssh
 config_postfix
 config_timezone
 config_passwd
 clean_chroot
+if [ ! -z $usezfs ];then
+	zfs set mountpoint=/ rpool/ROOT/pve-1
+	zpool set bootfs=rpool/ROOT/pve-1 rpool 
+	zpool export rpool
+fi
+
 #reboot -f
